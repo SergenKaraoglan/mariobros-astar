@@ -1,6 +1,8 @@
 import numpy as np
 import heapq
 import time
+import json
+import sys
 from nes_py.wrappers import JoypadSpace
 from nes_py._image_viewer import ImageViewer
 import gym_super_mario_bros
@@ -35,7 +37,40 @@ def get_state_key(nes_env, info):
     enemy_hash = hash(nes_env.ram[0x0F:0x20].tobytes())
     return (grid_x, grid_y, vx, status, enemy_hash)
 
+def play_back(actions, frames_per_action):
+    print("Starting playback...")
+    env = gym_super_mario_bros.make('SuperMarioBros-1-1-v0', apply_api_compatibility=True)
+    env = JoypadSpace(env, SIMPLE_MOVEMENT)
+    viewer = ImageViewer("Mario A* Playback", 256, 240)
+    
+    obs, info = env.reset()
+    for _ in range(50):
+        obs, _, _, _, _ = env.step(0)
+        viewer.show(obs)
+        
+    for action in actions:
+        for _ in range(frames_per_action):
+            obs, _, done, _, _ = env.step(action)
+            viewer.show(obs)
+            time.sleep(0.01)
+            if done:
+                break
+        if done:
+            break
+            
+    print("Playback finished.")
+    time.sleep(2)
+    viewer.close()
+    env.close()
+
 def main():
+    if '--playback' in sys.argv:
+        playback_file = sys.argv[sys.argv.index('--playback') + 1] if len(sys.argv) > sys.argv.index('--playback') + 1 else 'astar_playback.json'
+        with open(playback_file, 'r') as f:
+            data = json.load(f)
+            play_back(data['actions'], data['frames_per_action'])
+        return
+
     print("Initializing environment...")
     
     env = gym_super_mario_bros.make('SuperMarioBros-1-1-v0', apply_api_compatibility=True)
@@ -62,6 +97,7 @@ def main():
     GOAL_X = 3100
     total_actions_taken = 0
     FRAMES_PER_ACTION = 8
+    recorded_actions = []
     
     try:
         while True:
@@ -143,6 +179,8 @@ def main():
             elapsed_search = time.time() - search_start_time
             print(f"MPC Execution Step {total_actions_taken}: Searched {nodes_expanded} nodes in {elapsed_search:.2f}s. Selected action {action_to_take} predicting X={best_node.info['x_pos']}")
             
+            recorded_actions.append(int(action_to_take))
+            
             # Apply the chosen action PERMANENTLY
             env.reset()
             for _ in range(FRAMES_PER_ACTION):
@@ -158,6 +196,12 @@ def main():
         print("Interrupted.")
         
     print(f"Finished. Reached X={start_info['x_pos']}")
+    
+    # Save the playback
+    print("Saving playback to astar_playback.json...")
+    with open('astar_playback.json', 'w') as f:
+        json.dump({'actions': recorded_actions, 'frames_per_action': FRAMES_PER_ACTION}, f)
+        
     viewer.close()
     env.close()
 
